@@ -1,4 +1,6 @@
 # Landpop-Analyzer
+"Land Pop Analyzer" is a web-based application hosted online and accessible through the link https://jainunnati072.users.earthengine.app/view/landpop-analyzer.
+
 "Land Pop Analyzer" is an innovative web application designed to provide comprehensive analysis and insights into land population data. It serves as a powerful tool for researchers, urban planners, and policymakers to make informed decisions regarding land usage, infrastructure development, and population management.
 
 The application leverages cutting-edge data processing techniques and visualization tools to analyze large datasets of land population information. By integrating geospatial data, demographic data, and statistical analysis, "Land Pop Analyzer" offers a deep understanding of population distribution, density, and trends at various geographic levels, from national to local scales.
