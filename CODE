@@ -1,0 +1,351 @@
+// Create the main panel
+var mainPanel = ui.Panel({
+  layout: ui.Panel.Layout.flow('vertical', true),
+  style: { width: '450px', padding: '20px' }
+});
+
+// Add the main panel to the UI root
+ui.root.add(mainPanel);
+
+// Create the title label
+var titleLabel = ui.Label({
+  value: 'LandPop Analyzer ',
+  style: { fontWeight: 'bold', fontSize: '20px', color: '#993c33' }
+});
+
+// Add the title label to the main panel
+mainPanel.add(titleLabel);
+// Create the description label
+var descriptionLabel = ui.Label({
+  value: 'Gain insights into land classification and population patterns for informed decision-making and sustainable development.',
+  style: { fontWeight: '100', fontSize: '20px', color: '#994e33' }
+});
+
+// Add the description label to the main panel
+mainPanel.add(descriptionLabel);
+
+// Create the Color Palette Guide input label
+var ColorPaletteGuide = ui.Label({
+  value: 'Color Palette Guide : ',
+  style: { fontWeight: 'bold', fontSize: '15px', color: '#993c33' }
+});
+
+// Add the geometry input label to the main panel
+mainPanel.add(ColorPaletteGuide);
+
+var descriptionLabel = ui.Panel({
+  style: { fontWeight: '100', fontSize: '14px', color: '#994e33' }
+});
+
+// Define color representations
+var colorRepresentations = [
+  { color: 'f7e084', label: 'Barren Land' },
+  { color: '30eb5b', label: 'Forest' },
+  { color: '6a2325', label: 'Shrub/Grass' },
+  { color: 'cc0013', label: 'Urban' },
+  { color: 'cdb33b', label: 'Croplands' },
+  { color: '6f6f6f', label: 'Tundra' },
+  { color: 'd7cdcc', label: 'Snow and Ice' },
+  { color: 'aec3d4', label: 'Water' },
+  { color: '111149', label: 'Wetlands' },
+  { color: '33280d', label: 'Crop Mosaic' }
+];
+
+// Create color representation labels
+colorRepresentations.forEach(function (representation) {
+  var colorBoxLabel = ui.Panel({
+    layout: ui.Panel.Layout.Flow('horizontal'),
+    //style: { marginBottom: '5px' }
+  });
+  
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: '#' + representation.color,
+      width: '15px',
+      height: '15px',
+     // display: 'inline-block'
+    }
+  });
+  colorBoxLabel.add(colorBox);
+  
+  var colorLabel = ui.Label({
+    value: representation.label,
+    //style: { color: representation.color, marginLeft: '5px' }
+  });
+  colorBoxLabel.add(colorLabel);
+  
+  descriptionLabel.add(colorBoxLabel);
+});
+
+// Add the description label to the main panel
+mainPanel.add(descriptionLabel);
+
+
+
+// Create the geometry input label
+var geometryLabel = ui.Label({
+  value: 'Input the geographic boundaries(rectangle):',
+  style: { fontWeight: 'bold', fontSize: '15px', color: '#993c33' }
+});
+
+// Add the geometry input label to the main panel
+mainPanel.add(geometryLabel);
+
+// Create the geometry input textbox
+var geometryTextbox = ui.Textbox({
+  placeholder: 'e.g., -122.45, 37.75, -122.35, 37.85',
+  style: { width: '300px' }
+});
+
+// Add the geometry input textbox to the main panel
+mainPanel.add(geometryTextbox);
+
+// Create the update button
+var updateButton = ui.Button({
+  label: 'Activate',
+  style: { fontWeight: 'bold' },
+  onClick: function() {
+    // Get the entered geometry from the textbox
+    var geometryValue = geometryTextbox.getValue();
+    
+    // Split the entered geometry into individual coordinates
+    var coordinates = geometryValue.split(',').map(function(coord) {
+      return parseFloat(coord.trim());
+    });
+
+     // Check if the entered coordinates are valid
+    if (isNaN(coordinates[0]) || isNaN(coordinates[1]) || isNaN(coordinates[2]) || isNaN(coordinates[3])) {
+      // Show an error message to the user
+      var errorMessage = ui.Label({
+        value: 'Invalid coordinates. Please enter valid coordinates.',
+        style: { color: 'red' }
+      });
+      mainPanel.add(errorMessage);
+      return; // Stop further execution of the code
+    }
+    // Perform your land classification and further analysis here using the 'roi' geometry
+    // ...
+    var roi = ee.Geometry.Rectangle(coordinates);
+    
+    // Update the map visualization with the new ROI
+    Map.centerObject(roi, 10);
+    Map.layers().reset();
+    Map.addLayer(roi, { color: 'red' }, 'ROI');
+    
+    // Perform your land classification and further analysis here using the 'roi' geometry
+    // ...
+    function prepSrL8(image) {
+  // Develop masks for unwanted pixels (fill, cloud, cloud shadow).
+  var qaMask = image.select('QA_PIXEL').bitwiseAnd(parseInt('11111', 2)).eq(0);
+  var saturationMask = image.select('QA_RADSAT').eq(0);
+
+  // Apply the scaling factors to the appropriate bands.
+  var getFactorImg = function(factorNames) {
+    var factorList = image.toDictionary().select(factorNames).values();
+    return ee.Image.constant(factorList);
+  };
+  var scaleImg = getFactorImg([
+    'REFLECTANCE_MULT_BAND_.|TEMPERATURE_MULT_BAND_ST_B10']);
+  var offsetImg = getFactorImg([
+    'REFLECTANCE_ADD_BAND_.|TEMPERATURE_ADD_BAND_ST_B10']);
+  var scaled = image.select('SR_B.|ST_B10').multiply(scaleImg).add(offsetImg);
+
+  // Replace original bands with scaled bands and apply masks.
+  return image.addBands(scaled, null, true)
+    .updateMask(qaMask).updateMask(saturationMask);
+}
+
+// Make a cloud-free Landsat 8 surface reflectance composite.
+var input = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+    .filterBounds(roi)
+    .filterDate('2020-03-01', '2020-07-01')
+    .map(prepSrL8)
+    .median()
+    .setDefaultProjection('EPSG:4326', null, 30)
+    .select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']);
+
+// Use MODIS land cover, IGBP classification, for training.
+var modis = ee.Image('MODIS/006/MCD12Q1/2020_01_01')
+    .select('LC_Type1');
+
+// Sample the input imagery to get a FeatureCollection of training data.
+var training = input.addBands(modis).sample({
+  region: roi,
+  numPixels: 5000,
+  seed: 0
+});
+
+// Make a Gradient Tree Boost classifier and train it.
+var classifier = ee.Classifier.smileGradientTreeBoost({
+  numberOfTrees: 10,
+}).train({
+  features: training,
+  classProperty: 'LC_Type1',
+  inputProperties: ['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']
+});
+
+
+
+
+
+// Classify the input imagery.
+var classified = input.classify(classifier);
+
+// Get a confusion matrix representing resubstitution accuracy.
+var trainAccuracy = classifier.confusionMatrix();
+print('Resubstitution error matrix: ', trainAccuracy);
+print('Training overall accuracy: ', trainAccuracy.accuracy());
+
+// Sample the input with a different random seed to get validation data.
+var validation = input.addBands(modis).sample({
+  region: roi,
+  numPixels: 5000,
+  seed: 1
+  // Filter the result to get rid of any null pixels.
+}).filter(ee.Filter.notNull(input.bandNames()));
+
+// Classify the validation data.
+var validated = validation.classify(classifier);
+
+// Get a confusion matrix representing expected accuracy.
+var testAccuracy = validated.errorMatrix('LC_Type1', 'classification');
+print('Validation error matrix: ', testAccuracy);
+print('Validation overall accuracy: ', testAccuracy.accuracy());
+
+// Define a palette for the IGBP classification.
+var igbpPalette = [
+  'aec3d4', // water
+  '152106', '225129', '369b47', '30eb5b', '387242', // forest
+  '6a2325', 'c3aa69', 'b76031', 'd9903d', '91af40',  // shrub, grass
+  '111149', // wetlands
+  'cdb33b', // croplands
+  'cc0013', // urban
+  '33280d', // crop mosaic
+  'd7cdcc', // snow and ice
+  'f7e084', // barren
+  '6f6f6f'  // tundra
+];
+
+// Display the input and the classification.
+Map.centerObject(roi, 13);
+Map.addLayer(input.clip(roi),
+             {bands: ['SR_B4', 'SR_B3', 'SR_B2'], min: 0, max: 0.25},
+             'landsat');
+Map.addLayer(classified.clip(roi),
+             {palette: igbpPalette, min: 0, max: 17},
+             'classification');
+var resultPanel = ui.Panel({
+  style: { fontSize: '16px', fontWeight: 'bold' }
+});
+
+// Add the result panel to the main panel
+mainPanel.add(resultPanel);
+
+// Define the color code for barren land
+var barrenLandColor = 'f7e084';
+
+// Find the index of the color code in the palette
+var barrenLandIndex = igbpPalette.indexOf(barrenLandColor);
+
+// Calculate the area of barren land.
+var barrenLandArea = classified.clip(roi)
+  .eq(barrenLandIndex)
+  .multiply(ee.Image.pixelArea())
+  .reduceRegion({
+    reducer: ee.Reducer.sum(),
+    geometry: roi,
+    scale: 30, // Adjust the scale as needed
+    bestEffort: true
+  });
+
+// Convert the area to square meters.
+var barrenLandAreaSqM = ee.Number(barrenLandArea.get('classification'))
+  .multiply(0.0001); // Conversion factor for hectares to square meters
+
+var barrenLandLabel = ui.Label({
+  value: 'Area of Barren Land (sqm): ' + barrenLandAreaSqM.getInfo(),
+  style: { color: '#994e33' }
+});
+resultPanel.add(barrenLandLabel);
+// Print the area of barren land in square meters.
+print('Area of Barren Land (sqm):', barrenLandAreaSqM);
+
+// ...
+
+// Calculate the average temperature in the barren land area
+var temperature = input.select('SR_B4')
+  .updateMask(classified.eq(barrenLandIndex))
+  .reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: roi,
+    scale: 30, // Adjust the scale as needed
+  });
+
+var temperatureValue = temperature.get('SR_B4');
+
+var temperatureLabel = ui.Label({
+  value: 'Average Temperature (Celsius): ' + ee.Number(temperatureValue).format().getInfo(),
+  style: { color: '#994e33' }
+});
+resultPanel.add(temperatureLabel);
+
+// Print the average temperature
+print('Average Temperature in Barren Land:', ee.Number(temperatureValue).getInfo());
+
+// Calculate the precipitation in the barren land area
+var precipitation = input.select('SR_B6')
+  .updateMask(classified.eq(barrenLandIndex))
+  .reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: roi,
+    scale: 30, // Adjust the scale as needed
+  });
+var precipitationValue = precipitation.get('SR_B6');
+
+var precipitationLabel = ui.Label({
+  value: 'Average Precipitation (mm) in Barren Land: ' + ee.Number(precipitationValue).format().getInfo(),
+  style: { color: '#994e33' }
+});
+resultPanel.add(precipitationLabel);
+
+// Print the average precipitation
+print('Average Precipitation:', ee.Number(precipitationValue).getInfo());
+
+// ...
+
+
+
+// Load the GPW population dataset
+var gpw = ee.ImageCollection("CIESIN/GPWv4/population-count");
+
+// Define the coordinates of the location you are interested in
+
+// Create a buffer around the geometry to increase the region size
+var buffer = roi.buffer(1000); // Adjust the buffer size as needed
+
+// Get the population value within the buffer region
+var image = gpw.first();
+var population = image.reduceRegion({
+  reducer: ee.Reducer.first(),
+  geometry: buffer,
+  scale: 1000,
+  maxPixels: 1e9
+});
+
+var populationValue = population.get('population-count');
+
+var populationLabel = ui.Label({
+  value: 'Population(million): ' + ee.Number(populationValue).format().getInfo(),
+  style: { color: '#994e33' }
+});
+resultPanel.add(populationLabel);
+
+// Print the population value
+print('Population:', ee.Number(populationValue).getInfo());
+
+
+  }
+});
+
+// Add the update button to the main panel
+mainPanel.add(updateButton);
